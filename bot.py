@@ -6,6 +6,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 import reporter
+import agent_setup
 
 load_dotenv()
 
@@ -53,34 +54,6 @@ Rules:
 - Ignore casual chat, opinions, and unrelated topics
 - Never be preachy or lecture-y"""
 
-AGENT_SETUP_SYSTEM_PROMPT = """You are an expert LiveX AI agent provisioning assistant inside Slack.
-
-You are helping an SE walk through setting up a new LiveX agent step by step.
-
-Your behavior rules:
-- Work through the setup strictly in order — never skip steps
-- After each step, report what was done (✅), what was skipped and why (⏭️), or what failed (❌)
-- If something is ambiguous or you need input, STOP and ask — do not assume
-- Keep output concise: one status line per action, no walls of text
-- If a step fails, report the error clearly and ask how to proceed before continuing
-- Never fabricate success — if you can't confirm something worked, say so
-
-Steps (in order):
-1. Confirm agent_id, account_id, and API key are provided
-2. Read current agent config (draft)
-3. Set selfie template (provider, model, prompt) if selfie config is requested
-4. Patch business_voice.classifier_model
-5. Patch voice.language_models stt_prompt via --full-write
-6. Create and publish selfie agentflow if requested
-7. Add workflow_tool to tool_agent.tools
-8. Publish agent config
-9. Verify all changes via re-read
-
-Output format per step:
-✅ Step N — <action>: <result>
-❌ Step N — <action>: <error> → what should I do?
-⏭️ Step N — <action>: skipped (<reason>)
-❓ Step N — <action>: need input → <question>"""
 
 def get_embedding(text: str) -> list[float]:
     response = client.embeddings.create(
@@ -193,49 +166,13 @@ def handle_alignment(ack, say, command):
 
 # ── /setupagent ──────────────────────────────────────────────────────────────
 
-# In-progress setup sessions per user: {user_id: [{"role": ..., "content": ...}]}
-setup_sessions = {}
-
 @app.command("/setupagent")
 def handle_setup_agent(ack, say, command):
     ack()
     user = command["user_id"]
+    channel = command["channel_id"]
     text = command.get("text", "").strip()
-
-    # Start or continue a session
-    if user not in setup_sessions or text.lower() in ("reset", "restart", "start"):
-        setup_sessions[user] = [
-            {"role": "system", "content": AGENT_SETUP_SYSTEM_PROMPT}
-        ]
-        say(
-            "🤖 *LiveX Agent Setup* started.\n\n"
-            "Please provide the following to begin:\n"
-            "• `agent_id` — the agent ID (e.g. `pub-xxxx`)\n"
-            "• `account_id`\n"
-            "• `api_key`\n\n"
-            "Paste them in any format and I'll parse them out. "
-            "Type `/setupagent reset` at any time to start over."
-        )
-        return
-
-    if not text:
-        say("Please provide input to continue the setup. What would you like to do next?")
-        return
-
-    # Append user message and get next step from GPT
-    setup_sessions[user].append({"role": "user", "content": text})
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        max_tokens=600,
-        messages=setup_sessions[user]
-    )
-    reply = response.choices[0].message.content.strip()
-
-    # Append assistant reply to session history
-    setup_sessions[user].append({"role": "assistant", "content": reply})
-
-    say(reply)
+    agent_setup.handle_input(user, channel, text, say)
 
 
 # ── /dailyreport ─────────────────────────────────────────────────────────────
