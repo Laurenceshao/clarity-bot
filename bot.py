@@ -135,6 +135,12 @@ def handle_message(event, say):
         else:
             say(text=feedback, thread_ts=event["ts"])
 
+@app.command("/dailyreport")
+def handle_daily_report(ack, say):
+    ack()
+    say("Pulling airport device data... give me a moment.")
+    reporter.run_daily_report(app)
+
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
     scheduler.add_job(
