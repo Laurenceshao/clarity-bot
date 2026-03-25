@@ -45,7 +45,7 @@ def collect_data() -> list[dict]:
 def format_pct(val) -> str:
     if val is None:
         return "n/a"
-    return f"{float(val) * 100:.1f}%"
+    return f"{float(val):.1f}%"
 
 
 def format_val(val, suffix="") -> str:
