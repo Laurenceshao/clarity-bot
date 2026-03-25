@@ -76,8 +76,13 @@ def build_data_summary(data: list[dict]) -> str:
         carousel_clicked = funnel.get("ProductCarouselItemClicked", "n/a")
         qr_shown = funnel.get("ProductQrCodeShown", "n/a")
         qr_scanned = funnel.get("ProductQrCodeScanned", "n/a")
-        csat = cv.get("csat_rating") if cv else None
-        csat_str = f"{csat:.1f}/5" if csat is not None else "n/a"
+        csat_raw = cv.get("csat_rating") if cv else None
+        if isinstance(csat_raw, dict):
+            csat_raw = csat_raw.get("average") or csat_raw.get("rating") or csat_raw.get("value")
+        try:
+            csat_str = f"{float(csat_raw):.1f}/5" if csat_raw is not None else "n/a"
+        except (TypeError, ValueError):
+            csat_str = "n/a"
 
         lines.append(f"--- {d['name']} ({d['id']}) ---")
         lines.append(f"Sessions: {sessions} | Conversations: {conversations} | Avg duration: {avg_dur_str}")
