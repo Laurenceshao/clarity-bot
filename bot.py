@@ -136,17 +136,16 @@ def handle_message(event, say):
             say(text=feedback, thread_ts=event["ts"])
 
 if __name__ == "__main__":
-    report_hour = int(os.environ.get("REPORT_HOUR_UTC", "9"))
     scheduler = BackgroundScheduler()
     scheduler.add_job(
         lambda: reporter.run_daily_report(app),
         trigger="cron",
-        hour=report_hour,
+        hour=10,
         minute=0,
-        timezone="UTC",
+        timezone="America/Los_Angeles",
     )
     scheduler.start()
-    print(f"ClarityBot is running... (daily report scheduled at {report_hour:02d}:00 UTC)")
+    print("ClarityBot is running... (daily report scheduled at 10:00 AM PT)")
 
     handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
     handler.start()
