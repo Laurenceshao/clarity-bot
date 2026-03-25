@@ -1,3 +1,5 @@
 slack-bolt
 openai
 python-dotenv
+apscheduler
+requests

@@ -4,6 +4,8 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from openai import OpenAI
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
+import reporter
 
 load_dotenv()
 
@@ -134,6 +136,17 @@ def handle_message(event, say):
             say(text=feedback, thread_ts=event["ts"])
 
 if __name__ == "__main__":
+    report_hour = int(os.environ.get("REPORT_HOUR_UTC", "9"))
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(
+        lambda: reporter.run_daily_report(app),
+        trigger="cron",
+        hour=report_hour,
+        minute=0,
+        timezone="UTC",
+    )
+    scheduler.start()
+    print(f"ClarityBot is running... (daily report scheduled at {report_hour:02d}:00 UTC)")
+
     handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
-    print("ClarityBot is running...")
     handler.start()
