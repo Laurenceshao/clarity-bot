@@ -9,11 +9,34 @@ API_HOST = "https://api.copilot.livex.ai"
 API_KEY = os.environ["LIVEX_API_KEY"]
 ACCOUNT_ID = os.environ["LIVEX_ACCOUNT_ID"]
 
-AGENTS = [
-    {"id": "pub-2c7a2270-1e00-4a56-b677-aa2d2b71e390", "name": "Airport Device 1"},
-    {"id": "pub-4c60026b-66ad-4194-88ae-3afed6345e09", "name": "Airport Device 2"},
-    {"id": "pub-989a2749-1edc-4542-a3d1-0416b71351d2", "name": "Airport Device 3"},
+AGENT_IDS = [
+    "pub-2c7a2270-1e00-4a56-b677-aa2d2b71e390",
+    "pub-4c60026b-66ad-4194-88ae-3afed6345e09",
+    "pub-989a2749-1edc-4542-a3d1-0416b71351d2",
 ]
+
+
+def fetch_agent_label(agent_id: str) -> str:
+    """Fetch agent name + nickname from config API. Falls back to agent_id on error."""
+    bare_id = agent_id.removeprefix("pub-")
+    url = f"{API_HOST}/api/v1/agent"
+    try:
+        resp = requests.get(
+            url,
+            headers={"X-API-KEY": API_KEY},
+            params={"account_id": ACCOUNT_ID, "agent_id": bare_id},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            config = resp.json().get("config", resp.json())
+            name = config.get("name", "")
+            nickname = config.get("nickname", "")
+            if name and nickname:
+                return f"{name} ({nickname})"
+            return name or nickname or agent_id
+    except Exception:
+        pass
+    return agent_id
 
 
 def fetch_endpoint(agent_id: str, endpoint: str, start_time: str, end_time: str) -> dict:
@@ -35,13 +58,14 @@ def collect_data() -> list[dict]:
     start_time = (now - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     results = []
-    for agent in AGENTS:
-        overview = fetch_endpoint(agent["id"], "device-overview", start_time, end_time)
-        selfie = fetch_endpoint(agent["id"], "selfie-funnel", start_time, end_time)
-        intent = fetch_endpoint(agent["id"], "intent-understanding", start_time, end_time)
+    for agent_id in AGENT_IDS:
+        label = fetch_agent_label(agent_id)
+        overview = fetch_endpoint(agent_id, "device-overview", start_time, end_time)
+        selfie = fetch_endpoint(agent_id, "selfie-funnel", start_time, end_time)
+        intent = fetch_endpoint(agent_id, "intent-understanding", start_time, end_time)
         results.append({
-            "name": agent["name"],
-            "id": agent["id"],
+            "name": label,
+            "id": agent_id,
             "overview": overview,
             "selfie": selfie,
             "intent": intent,
