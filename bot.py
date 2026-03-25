@@ -175,6 +175,49 @@ def handle_setup_agent(ack, say, command):
     agent_setup.handle_input(user, channel, text, say)
 
 
+# ── /setupagenthelp ──────────────────────────────────────────────────────────
+
+@app.command("/setupagenthelp")
+def handle_setup_agent_help(ack, say, command):
+    ack()
+    say(
+        "*🤖 /setupagent — LiveX Agent Setup*\n\n"
+
+        "*Start a new agent (zero-to-live):*\n"
+        "```/setupagent account_id: <id> api_key: <key> name: <agent name>```\n"
+        "Optional: `desc: <description>` · `clone_from: <agent_id>`\n\n"
+
+        "*Configure an existing agent:*\n"
+        "```/setupagent account_id: <id> api_key: <key> agent_id: <pub-xxxx>```\n\n"
+
+        "*Or just run with no args — bot will guide you:*\n"
+        "```/setupagent```\n\n"
+
+        "*Steps (automatic, pauses only when input needed):*\n"
+        "1. Credentials — account_id + api_key + name or agent_id\n"
+        "2. Create agent — creates corpus + agent (skipped if agent_id provided)\n"
+        "3. Personality — GPT-generates from venue context, you confirm\n"
+        "4. Classifier model — auto-applied, no input needed\n"
+        "5. Language models — full 8-language TTS/STT config via built-in template or source agent\n"
+        "6. KB upload — paste URLs to add to agent knowledge base (skippable)\n"
+        "7. Selfie — GPT-generates image prompt, you confirm; creates + publishes agentflow\n"
+        "8. Workflow tool — auto-added if missing\n"
+        "9. Publish — goes live\n"
+        "10. Verify — confirms all key fields\n\n"
+
+        "*Re-run any step after setup:*\n"
+        "```/setupagent fix personality\n"
+        "/setupagent fix language_models\n"
+        "/setupagent fix kb\n"
+        "/setupagent fix selfie\n"
+        "/setupagent fix publish\n"
+        "/setupagent fix verify```\n\n"
+
+        "*Reset session:*\n"
+        "```/setupagent reset```"
+    )
+
+
 # ── /dailyreport ─────────────────────────────────────────────────────────────
 
 @app.command("/dailyreport")
