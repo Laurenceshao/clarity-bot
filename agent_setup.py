@@ -7,6 +7,12 @@ shell scripts via subprocess and posting step-by-step progress to Slack.
 Usage (from bot.py):
     agent_setup.handle_input(user_id, channel_id, text, post_fn)
 
+New agent (zero-to-live):
+    Provide account_id + api_key + agent name → bot creates agent then configures it.
+
+Existing agent:
+    Provide account_id + api_key + agent_id → bot skips creation, goes straight to config.
+
 Post-fix:
     /setupagent fix personality
     /setupagent fix language_models
@@ -169,18 +175,20 @@ LANGUAGE_MODELS_TEMPLATE = [
 ]
 
 STEPS = [
-    "credentials",      # 1 - parse + verify + read config
-    "personality",      # 2 - GPT-generate personality / write name+nickname+role
-    "classifier_model", # 3 - business_voice.classifier_model (auto)
-    "language_models",  # 4 - full TTS/STT patch via --full-write
-    "kb",               # 5 - KB URL / doc upload
-    "selfie",           # 6 - GPT selfie prompt + template + agentflow
-    "workflow_tool",    # 7 - ensure workflow_tool in tool_agent.tools
-    "publish",          # 8 - publish
-    "verify",           # 9 - re-read + confirm
+    "credentials",      # 1 - parse account_id + api_key; agent_id optional
+    "create_agent",     # 2 - create new agent if no agent_id given; else read existing config
+    "personality",      # 3 - GPT-generate personality / write name+nickname+role
+    "classifier_model", # 4 - business_voice.classifier_model (auto)
+    "language_models",  # 5 - full TTS/STT patch via --full-write
+    "kb",               # 6 - KB URL / doc upload
+    "selfie",           # 7 - GPT selfie prompt + template + agentflow
+    "workflow_tool",    # 8 - ensure workflow_tool in tool_agent.tools
+    "publish",          # 9 - publish
+    "verify",           # 10 - re-read + confirm
 ]
 
 FIXABLE_STEPS = {
+    "create_agent": "create_agent",
     "personality": "personality",
     "language_models": "language_models",
     "lm": "language_models",
@@ -202,12 +210,14 @@ class SetupSession:
     waiting_for: str = ""   # "" = not waiting
 
     # Credentials
-    agent_id: str = ""
-    bare_id: str = ""       # no pub- prefix
+    agent_id: str = ""        # empty = create new
+    bare_id: str = ""         # no pub- prefix
     account_id: str = ""
     api_key: str = ""
     profile_name: str = ""
     config: dict = field(default_factory=dict)
+    clone_from: str = ""      # source agent_id to clone config from
+    agent_desc: str = ""      # description for new agent creation
 
     # Agent context (collected for personality + selfie generation)
     agent_name: str = ""
@@ -301,18 +311,37 @@ def _remove_profile(session: SetupSession):
 
 def _parse_credentials(text: str) -> dict:
     result = {}
+    # agent_id (optional)
     m = re.search(r'agent[_\s]?id[:\s]+([a-zA-Z0-9\-]+)', text, re.I)
     if m:
         result["agent_id"] = m.group(1).strip()
     m2 = re.search(r'(pub-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', text, re.I)
     if m2 and "agent_id" not in result:
         result["agent_id"] = m2.group(1).strip()
+    # account_id
     m = re.search(r'account[_\s]?id[:\s]+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', text, re.I)
     if m:
         result["account_id"] = m.group(1).strip()
+    # api_key
     m = re.search(r'api[_\s]?key[:\s]+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', text, re.I)
     if m:
         result["api_key"] = m.group(1).strip()
+    # agent name (for new agent creation)
+    m = re.search(r'(?:agent[_\s]?)?name[:\s]+"([^"]+)"', text, re.I)
+    if not m:
+        m = re.search(r'(?:agent[_\s]?)?name[:\s]+(.+?)(?:\n|$|,)', text, re.I)
+    if m:
+        result["agent_name"] = m.group(1).strip()
+    # clone_from
+    m = re.search(r'clone[_\s]?from[:\s]+([a-zA-Z0-9\-]+)', text, re.I)
+    if m:
+        result["clone_from"] = m.group(1).strip()
+    # desc
+    m = re.search(r'desc(?:ription)?[:\s]+"([^"]+)"', text, re.I)
+    if not m:
+        m = re.search(r'desc(?:ription)?[:\s]+(.+?)(?:\n|$)', text, re.I)
+    if m:
+        result["agent_desc"] = m.group(1).strip()
     return result
 
 
@@ -407,44 +436,100 @@ def _step_credentials(session: SetupSession, text: str, post: Callable) -> bool:
         session.account_id = creds["account_id"]
     if creds.get("api_key"):
         session.api_key = creds["api_key"]
+    if creds.get("agent_name") and not session.agent_name:
+        session.agent_name = creds["agent_name"]
+    if creds.get("clone_from"):
+        session.clone_from = creds["clone_from"]
+    if creds.get("agent_desc"):
+        session.agent_desc = creds["agent_desc"]
 
     missing = []
-    if not session.agent_id:
-        missing.append("`agent_id`")
     if not session.account_id:
         missing.append("`account_id`")
     if not session.api_key:
         missing.append("`api_key`")
+    # Need either agent_id (existing) or agent name (new)
+    if not session.agent_id and not session.agent_name:
+        missing.append("`agent_id` (existing) or `name` (new agent)")
     if missing:
         post(f"❓ Step 1 — credentials: still need {', '.join(missing)}")
         session.waiting_for = "credentials"
         return False
 
     session.profile_name = _ensure_profile(session)
+    mode = "existing agent" if session.agent_id else f"new agent `{session.agent_name}`"
+    post(f"✅ Step 1 — credentials: ready ({mode}, profile `{session.profile_name}`)")
+    session.waiting_for = ""
+    return True
 
-    # Read config immediately
-    rc, out, err = _run([
+
+def _step_create_agent(session: SetupSession, post: Callable) -> bool:
+    """If agent_id already provided, just read the config. Otherwise create a new agent."""
+    if session.agent_id:
+        # Existing agent — just read config
+        rc, out, err = _run([
+            _script("livex-config-read.sh"), session.agent_id,
+            "--profile", session.profile_name,
+        ])
+        if rc != 0:
+            post(f"❌ Step 2 — read config: {err or out}\n→ Check agent_id and credentials.")
+            return False
+        try:
+            session.config = json.loads(out)
+        except json.JSONDecodeError:
+            post("❌ Step 2 — read config: could not parse JSON.")
+            return False
+        existing_name = session.config.get("name") or session.config.get("nickname") or session.agent_id
+        post(f"⏭️ Step 2 — create agent: skipped (using existing `{existing_name}`)")
+        # Populate agent_name from config if not set
+        if not session.agent_name:
+            session.agent_name = session.config.get("name") or session.config.get("nickname") or ""
+        return True
+
+    # Create new agent
+    post(f"⏳ Step 2 — creating agent `{session.agent_name}`…")
+    cmd = [
+        _script("livex-agent-create.sh"),
+        "--name", session.agent_name,
+        "--profile", session.profile_name,
+        "--yes",
+    ]
+    if session.agent_desc:
+        cmd += ["--desc", session.agent_desc]
+    if session.clone_from:
+        cmd += ["--from", session.clone_from]
+
+    rc, out, err = _run(cmd)
+    if rc != 0:
+        post(f"❌ Step 2 — create agent: {err or out}")
+        return False
+
+    # Script outputs bare agent_id on last stdout line
+    bare_id = out.strip().splitlines()[-1].strip()
+    if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', bare_id):
+        post(f"❌ Step 2 — create agent: unexpected output (expected UUID, got `{bare_id}`)")
+        return False
+
+    session.bare_id = bare_id
+    session.agent_id = f"pub-{bare_id}"
+
+    # Read freshly created config
+    rc2, out2, err2 = _run([
         _script("livex-config-read.sh"), session.agent_id,
         "--profile", session.profile_name,
     ])
-    if rc != 0:
-        post(f"❌ Step 1 — read config: {err or out}\n→ Check credentials and try again.")
-        session.waiting_for = "credentials"
-        return False
+    if rc2 == 0:
+        try:
+            session.config = json.loads(out2)
+        except json.JSONDecodeError:
+            pass
 
-    try:
-        session.config = json.loads(out)
-    except json.JSONDecodeError:
-        post(f"❌ Step 1 — read config: could not parse JSON.")
-        session.waiting_for = "credentials"
-        return False
-
-    existing_name = session.config.get("name") or session.config.get("nickname") or ""
     post(
-        f"✅ Step 1 — credentials + config loaded: `{existing_name or session.agent_id}`\n"
-        f"  profile: `{session.profile_name}`"
+        f"✅ Step 2 — agent created!\n"
+        f"  • `agent_id`: `{session.agent_id}`\n"
+        f"  • `bare_id`: `{session.bare_id}`"
+        + (f"\n  • cloned from: `{session.clone_from}`" if session.clone_from else "")
     )
-    session.waiting_for = ""
     return True
 
 
@@ -1061,6 +1146,8 @@ def _run_from_step(session: SetupSession, text: str, post: Callable):
         ok = False
         if step_name == "credentials":
             ok = _step_credentials(session, text, post)
+        elif step_name == "create_agent":
+            ok = _step_create_agent(session, post)
         elif step_name == "personality":
             ok = _step_personality(session, text, post)
         elif step_name == "classifier_model":
@@ -1098,13 +1185,14 @@ def handle_input(user_id: str, channel_id: str, text: str, post: Callable) -> No
     if text.lower() in ("reset", "restart", "start", ""):
         clear_session(user_id)
         post(
-            "🤖 *LiveX Agent Setup* — script execution mode\n\n"
-            "Provide credentials to begin:\n"
-            "• `agent_id` — e.g. `pub-xxxx-…`\n"
-            "• `account_id`\n"
-            "• `api_key`\n\n"
-            "_Steps: credentials → personality → classifier_model → language_models → kb → selfie → workflow_tool → publish → verify_\n"
-            "_Use `/setupagent fix <step>` after setup to re-run a specific step._"
+            "🤖 *LiveX Agent Setup* — zero to live\n\n"
+            "*New agent* — provide:\n"
+            "• `account_id`, `api_key`, `name: <agent name>`\n"
+            "• Optional: `desc: <description>`, `clone_from: <agent_id>`\n\n"
+            "*Existing agent* — provide:\n"
+            "• `account_id`, `api_key`, `agent_id: <pub-xxxx>`\n\n"
+            "_Steps: credentials → create/load agent → personality → classifier_model → language_models → kb → selfie → workflow_tool → publish → verify_\n"
+            "_Use `/setupagent fix <step>` to re-run any step after setup._"
         )
         return
 
