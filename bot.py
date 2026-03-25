@@ -15,6 +15,9 @@ client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 # Rolling buffer of last 20 (text, embedding) pairs per channel
 channel_history = defaultdict(lambda: deque(maxlen=20))
 
+# Per-channel alignment feature toggle (default: off)
+alignment_enabled = defaultdict(lambda: False)
+
 AMBIGUITY_PROMPT = """You are a communication clarity assistant in a Slack channel for an engineering team.
 Your job is to detect ambiguity or vagueness in messages.
 
@@ -49,6 +52,35 @@ Rules:
 - Only flag if the NEW message itself introduces the conflict
 - Ignore casual chat, opinions, and unrelated topics
 - Never be preachy or lecture-y"""
+
+AGENT_SETUP_SYSTEM_PROMPT = """You are an expert LiveX AI agent provisioning assistant inside Slack.
+
+You are helping an SE walk through setting up a new LiveX agent step by step.
+
+Your behavior rules:
+- Work through the setup strictly in order — never skip steps
+- After each step, report what was done (✅), what was skipped and why (⏭️), or what failed (❌)
+- If something is ambiguous or you need input, STOP and ask — do not assume
+- Keep output concise: one status line per action, no walls of text
+- If a step fails, report the error clearly and ask how to proceed before continuing
+- Never fabricate success — if you can't confirm something worked, say so
+
+Steps (in order):
+1. Confirm agent_id, account_id, and API key are provided
+2. Read current agent config (draft)
+3. Set selfie template (provider, model, prompt) if selfie config is requested
+4. Patch business_voice.classifier_model
+5. Patch voice.language_models stt_prompt via --full-write
+6. Create and publish selfie agentflow if requested
+7. Add workflow_tool to tool_agent.tools
+8. Publish agent config
+9. Verify all changes via re-read
+
+Output format per step:
+✅ Step N — <action>: <result>
+❌ Step N — <action>: <error> → what should I do?
+⏭️ Step N — <action>: skipped (<reason>)
+❓ Step N — <action>: need input → <question>"""
 
 def get_embedding(text: str) -> list[float]:
     response = client.embeddings.create(
@@ -114,6 +146,10 @@ def handle_message(event, say):
     channel_type = event.get("channel_type")
     is_dm = channel_type == "im"
 
+    # Skip alignment checks if disabled for this channel
+    if not alignment_enabled[channel]:
+        return
+
     # Embed the new message
     embedding = get_embedding(text)
 
@@ -135,16 +171,87 @@ def handle_message(event, say):
         else:
             say(text=feedback, thread_ts=event["ts"])
 
+
+# ── /alignment ──────────────────────────────────────────────────────────────
+
+@app.command("/alignment")
+def handle_alignment(ack, say, command):
+    ack()
+    channel = command["channel_id"]
+    arg = command.get("text", "").strip().lower()
+
+    if arg == "on":
+        alignment_enabled[channel] = True
+        say("✅ Alignment checks *enabled* for this channel. I'll flag ambiguity and contradictions.")
+    elif arg == "off":
+        alignment_enabled[channel] = False
+        say("⏸️ Alignment checks *disabled* for this channel. I'll stay quiet until you turn it back on.")
+    else:
+        status = "enabled ✅" if alignment_enabled[channel] else "disabled ⏸️ (default)"
+        say(f"Alignment checks are currently *{status}*.\nUsage: `/alignment on` or `/alignment off`")
+
+
+# ── /setupagent ──────────────────────────────────────────────────────────────
+
+# In-progress setup sessions per user: {user_id: [{"role": ..., "content": ...}]}
+setup_sessions = {}
+
+@app.command("/setupagent")
+def handle_setup_agent(ack, say, command):
+    ack()
+    user = command["user_id"]
+    text = command.get("text", "").strip()
+
+    # Start or continue a session
+    if user not in setup_sessions or text.lower() in ("reset", "restart", "start"):
+        setup_sessions[user] = [
+            {"role": "system", "content": AGENT_SETUP_SYSTEM_PROMPT}
+        ]
+        say(
+            "🤖 *LiveX Agent Setup* started.\n\n"
+            "Please provide the following to begin:\n"
+            "• `agent_id` — the agent ID (e.g. `pub-xxxx`)\n"
+            "• `account_id`\n"
+            "• `api_key`\n\n"
+            "Paste them in any format and I'll parse them out. "
+            "Type `/setupagent reset` at any time to start over."
+        )
+        return
+
+    if not text:
+        say("Please provide input to continue the setup. What would you like to do next?")
+        return
+
+    # Append user message and get next step from GPT
+    setup_sessions[user].append({"role": "user", "content": text})
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        max_tokens=600,
+        messages=setup_sessions[user]
+    )
+    reply = response.choices[0].message.content.strip()
+
+    # Append assistant reply to session history
+    setup_sessions[user].append({"role": "assistant", "content": reply})
+
+    say(reply)
+
+
+# ── /dailyreport ─────────────────────────────────────────────────────────────
+
 @app.command("/dailyreport")
-def handle_daily_report(ack, say):
+def handle_daily_report(ack, say, command):
     ack()
     say("Pulling airport device data... give me a moment.")
-    reporter.run_daily_report(app)
+    reporter.run_daily_report(app, channel=command["channel_id"])
+
 
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
+    scheduled_channel = os.environ.get("DAILY_REPORT_CHANNEL")
     scheduler.add_job(
-        lambda: reporter.run_daily_report(app),
+        lambda: reporter.run_daily_report(app, channel=scheduled_channel),
         trigger="cron",
         hour=10,
         minute=0,

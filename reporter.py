@@ -233,24 +233,12 @@ def build_slack_message(data: list[dict], analysis: str) -> str:
     return "\n".join(lines)
 
 
-def get_bot_channels(app) -> list[str]:
-    """Return IDs of all channels the bot is a member of."""
-    channel_ids = []
-    cursor = None
-    while True:
-        kwargs = {"types": "public_channel,private_channel", "limit": 200}
-        if cursor:
-            kwargs["cursor"] = cursor
-        resp = app.client.users_conversations(**kwargs)
-        for ch in resp["channels"]:
-            channel_ids.append(ch["id"])
-        cursor = resp.get("response_metadata", {}).get("next_cursor")
-        if not cursor:
-            break
-    return channel_ids
+def run_daily_report(app, channel: str | None = None):
+    target = channel or os.environ.get("DAILY_REPORT_CHANNEL")
+    if not target:
+        print("[reporter] No channel specified and DAILY_REPORT_CHANNEL not set — skipping.")
+        return
 
-
-def run_daily_report(app):
     print("[reporter] Collecting device data...")
     data = collect_data()
     data_summary = build_data_summary(data)
@@ -258,11 +246,9 @@ def run_daily_report(app):
     analysis = generate_analysis(data_summary)
     message = build_slack_message(data, analysis)
 
-    channels = get_bot_channels(app)
-    print(f"[reporter] Posting to {len(channels)} channel(s)...")
-    for ch in channels:
-        try:
-            app.client.chat_postMessage(channel=ch, text=message)
-        except Exception as e:
-            print(f"[reporter] Failed to post to {ch}: {e}")
-    print("[reporter] Done.")
+    print(f"[reporter] Posting to {target}...")
+    try:
+        app.client.chat_postMessage(channel=target, text=message)
+        print("[reporter] Done.")
+    except Exception as e:
+        print(f"[reporter] Failed to post to {target}: {e}")
