@@ -282,14 +282,16 @@ def _write_tmp(data: dict) -> str:
 
 # ── profile bootstrap ─────────────────────────────────────────────────────────
 
+LIVEX_API_HOST = "https://api.copilot.livex.ai"
+
 def _ensure_profile(session: SetupSession) -> str:
-    profile_name = f"_setup_{session.user_id[:8]}"
+    profile_name = f"prd-setup-{session.user_id[:8]}"
     os.makedirs(os.path.dirname(PROFILES_FILE), exist_ok=True)
     lines = []
     if os.path.exists(PROFILES_FILE):
         with open(PROFILES_FILE) as f:
             lines = [l for l in f.readlines() if not l.startswith(profile_name + "\t")]
-    lines.append(f"{profile_name}\t{session.api_key}\t{session.account_id}\n")
+    lines.append(f"{profile_name}\t{session.api_key}\t{session.account_id}\t{LIVEX_API_HOST}\n")
     with open(PROFILES_FILE, "w") as f:
         f.writelines(lines)
     return profile_name
@@ -302,6 +304,9 @@ def _remove_profile(session: SetupSession):
         lines = [l for l in f.readlines() if not l.startswith(session.profile_name + "\t")]
     with open(PROFILES_FILE, "w") as f:
         f.writelines(lines)
+    # Remove empty profiles file if nothing left
+    if os.path.exists(PROFILES_FILE) and os.path.getsize(PROFILES_FILE) == 0:
+        os.unlink(PROFILES_FILE)
 
 
 # ── parsing ───────────────────────────────────────────────────────────────────
