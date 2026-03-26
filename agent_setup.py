@@ -787,27 +787,81 @@ def _step_kb(session: SetupSession, text: str, post: Callable) -> bool:
         session.waiting_for = "kb_urls"
         return False
 
-    # Upload each URL
-    results = []
-    for url in session.kb_urls:
+    # Upload each URL — post per-URL result as it comes in
+    n = len(session.kb_urls)
+    post(f"⏳ Step 5 — KB upload: queuing {n} URL{'s' if n != 1 else ''}...")
+    uploaded_doc_ids = []
+    any_failed = False
+    for i, url in enumerate(session.kb_urls, 1):
         rc, out, err = _run([
             _script("livex-kb-upload.sh"), session.agent_id,
             "--url", url,
             "--profile", session.profile_name,
-            "--wait",
             "--yes",
-        ], timeout=360)
+        ], timeout=60)
         combined = (out + "\n" + err).strip()
-        # Extract most useful line: prefer lines mentioning doc_size, processed, error
         detail_line = next(
             (l.strip() for l in combined.splitlines()
-             if any(k in l.lower() for k in ("processed", "doc_size", "error", "failed", "success", "uploaded"))),
+             if any(k in l.lower() for k in ("error", "failed", "success", "uploaded", "queued", "submit"))),
             combined.splitlines()[-1].strip() if combined.splitlines() else ""
         )
-        status = "✅" if rc == 0 else "❌"
-        results.append(f"  {status} `{url}`\n    {detail_line[:120]}")
+        # Parse doc_id from output (UUID returned by the API after →)
+        m = re.search(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', combined)
+        doc_id = m.group(0) if m else None
+        ok = rc == 0 or bool(doc_id)
+        if ok and doc_id:
+            uploaded_doc_ids.append(doc_id)
+        if not ok:
+            any_failed = True
+        status = "✅" if ok else "❌"
+        post(f"  {status} [{i}/{n}] `{url}`\n    {detail_line[:120]}")
 
-    post("✅ Step 5 — KB upload:\n" + "\n".join(results))
+    # Explicitly patch document_list in config with the new doc IDs (safety net —
+    # the upload API auto-adds them, but this ensures it for freshly created agents)
+    if uploaded_doc_ids:
+        rc_r, out_r, _ = _run([
+            _script("livex-config-read.sh"), session.agent_id,
+            "--profile", session.profile_name,
+            "--field", ".tools.document_qa.document_list",
+        ])
+        try:
+            existing = json.loads(out_r) if rc_r == 0 and out_r.strip() not in ("null", "") else []
+            if not isinstance(existing, list):
+                existing = []
+        except (json.JSONDecodeError, ValueError):
+            existing = []
+        merged = list(dict.fromkeys(existing + uploaded_doc_ids))  # dedupe, preserve order
+        patch = json.dumps({"tools": {"document_qa": {"document_list": merged}}})
+        _run([
+            _script("livex-config-update.sh"), session.agent_id,
+            "--profile", session.profile_name,
+            patch, "--yes",
+        ])
+
+    overall = "⚠️" if any_failed else "✅"
+    post(
+        f"{overall} Step 5 — KB queued. Content is processing asynchronously "
+        f"— I'll notify you here when documents are ready for search. Moving on..."
+    )
+
+    # Background thread: poll until all docs are processed, then notify
+    import threading
+
+    def _bg_wait(agent_id: str, profile_name: str, notify: Callable):
+        _run([
+            _script("livex-kb-list.sh"), agent_id,
+            "--profile", profile_name,
+            "--wait-ready",
+            "--wait-timeout", "600",
+        ], timeout=660)
+        notify("📚 KB documents finished processing and are now searchable.")
+
+    threading.Thread(
+        target=_bg_wait,
+        args=(session.agent_id, session.profile_name, post),
+        daemon=True,
+    ).start()
+
     session.waiting_for = ""
     return True
 
