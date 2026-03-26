@@ -908,15 +908,22 @@ def _step_selfie(session: SetupSession, text: str, post: Callable) -> bool:
         session.selfie_choice_made = True
         session.waiting_for = ""
 
+    if session.waiting_for == "selfie_venue_context":
+        if len(text.strip()) > 100:
+            # Long text = full prompt pasted directly, skip generation
+            session.selfie_prompt = text.strip()
+        else:
+            session.venue_name = text.strip()
+        session.waiting_for = ""
+
     if session.waiting_for == "selfie_prompt_confirm":
         if text.strip().lower() in ("yes", "y", "ok", "good", "looks good", "apply"):
             session.waiting_for = ""
         elif len(text.strip()) > 100:
-            # Replacement prompt
             session.selfie_prompt = text.strip()
             session.waiting_for = ""
         else:
-            post("Paste the full replacement prompt, or reply `yes` to use the generated one.")
+            post("Reply `yes` to use the generated prompt, or paste a replacement (200+ chars).")
             return False
 
     if session.waiting_for == "selfie_config":
@@ -960,7 +967,7 @@ def _step_selfie(session: SetupSession, text: str, post: Callable) -> bool:
                 "What venue/brand/event should the selfie background be set in?\n"
                 "_Or paste a full image prompt directly (200+ chars)._"
             )
-            session.waiting_for = "selfie_prompt_confirm"
+            session.waiting_for = "selfie_venue_context"
             return False
 
         post("⏳ Step 6 — generating selfie image prompt from venue context…")
@@ -1144,6 +1151,33 @@ def _step_verify(session: SetupSession, post: Callable) -> bool:
     return True
 
 
+# ── step state reset (for fix jumps) ─────────────────────────────────────────
+
+def _reset_step_state(session: SetupSession, step_name: str):
+    """Clear collected state for a step so fix <step> re-runs it from scratch."""
+    if step_name == "personality":
+        session.personality_text = ""
+        session.agent_name = session.config.get("name") or session.config.get("nickname") or ""
+        session.agent_role = ""
+        session.venue_name = ""
+        session.organizer = ""
+        session.context_extra = ""
+    elif step_name == "language_models":
+        session.lm_choice_made = False
+        session.lm_custom_source = ""
+        session.stt_keywords = ""
+    elif step_name == "kb":
+        session.kb_urls = []
+        session.kb_skip = False
+    elif step_name == "selfie":
+        session.selfie_choice_made = False
+        session.do_selfie = False
+        session.selfie_prompt = ""
+        session.counter_key = ""
+        session.watermark_logo = ""
+        session.image_config_str = ""
+
+
 # ── runner ─────────────────────────────────────────────────────────────────────
 
 def _run_from_step(session: SetupSession, text: str, post: Callable):
@@ -1228,7 +1262,8 @@ def handle_input(user_id: str, channel_id: str, text: str, post: Callable) -> No
             return
         session.step = STEPS.index(target)
         session.waiting_for = ""
-        post(f"↩️ Jumping to step: `{target}`")
+        _reset_step_state(session, target)
+        post(f"↩️ Re-running step: `{target}` (state cleared)")
         _run_from_step(session, "", post)
         return
 
