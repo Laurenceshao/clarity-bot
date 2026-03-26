@@ -1039,10 +1039,7 @@ def _step_selfie(session: SetupSession, text: str, post: Callable) -> bool:
     post(f"✅ Step 6a — selfie template: `{session.selfie_provider}/{session.selfie_model}` set.")
 
     # Create agentflow
-    flow = _build_selfie_agentflow(session)
-    # Strip account/agent IDs (shouldn't be there but be safe)
-    flow.pop("account_id", None)
-    flow.pop("agent_id", None)
+    flow = _build_selfie_agentflow(session)  # returns a list
 
     tmp = _write_tmp(flow)
     try:
