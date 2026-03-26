@@ -227,6 +227,7 @@ class SetupSession:
 
     # Language models
     lm_custom_source: str = ""   # source agent_id if user provides one
+    lm_choice_made: bool = False # True once user has answered template vs custom
     stt_keywords: str = ""
 
     # KB
@@ -674,16 +675,16 @@ def _step_language_models(session: SetupSession, text: str, post: Callable) -> b
         if low in ("template", "default", "lyra", "n", "no"):
             session.lm_custom_source = ""
         else:
-            # Treat as source agent_id
             session.lm_custom_source = text.strip()
+        session.lm_choice_made = True
         session.waiting_for = ""
 
     if session.waiting_for == "stt_keywords":
         session.stt_keywords = text.strip()
         session.waiting_for = ""
 
-    # First entry for this step
-    if not session.lm_custom_source and not session.stt_keywords and session.waiting_for == "":
+    # First entry for this step — ask only if choice hasn't been made yet
+    if not session.lm_choice_made and session.waiting_for == "":
         post(
             "❓ Step 4 — language_models: do you have a source agent to copy TTS/STT config from?\n"
             "• Reply with a source `agent_id` to copy it exactly\n"
