@@ -264,8 +264,8 @@ def clear_session(user_id: str):
 
 # ── subprocess ────────────────────────────────────────────────────────────────
 
-def _run(cmd: list[str]) -> tuple[int, str, str]:
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+def _run(cmd: list[str], timeout: int = 60) -> tuple[int, str, str]:
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
@@ -794,11 +794,18 @@ def _step_kb(session: SetupSession, text: str, post: Callable) -> bool:
             _script("livex-kb-upload.sh"), session.agent_id,
             "--url", url,
             "--profile", session.profile_name,
+            "--wait",
             "--yes",
-        ])
+        ], timeout=360)
+        combined = (out + "\n" + err).strip()
+        # Extract most useful line: prefer lines mentioning doc_size, processed, error
+        detail_line = next(
+            (l.strip() for l in combined.splitlines()
+             if any(k in l.lower() for k in ("processed", "doc_size", "error", "failed", "success", "uploaded"))),
+            combined.splitlines()[-1].strip() if combined.splitlines() else ""
+        )
         status = "✅" if rc == 0 else "❌"
-        detail = out.split("\n")[0][:80] if out else (err.split("\n")[0][:80] if err else "")
-        results.append(f"  {status} `{url}` — {detail}")
+        results.append(f"  {status} `{url}`\n    {detail_line[:120]}")
 
     post("✅ Step 5 — KB upload:\n" + "\n".join(results))
     session.waiting_for = ""
