@@ -235,6 +235,7 @@ class SetupSession:
     kb_skip: bool = False
 
     # Selfie
+    selfie_choice_made: bool = False
     do_selfie: bool = False
     selfie_prompt: str = ""
     selfie_provider: str = "xai"
@@ -896,10 +897,12 @@ def _step_selfie(session: SetupSession, text: str, post: Callable) -> bool:
         low = text.strip().lower()
         if low in ("no", "n", "skip"):
             session.do_selfie = False
+            session.selfie_choice_made = True
             post("⏭️ Step 6 — selfie: skipped.")
             session.waiting_for = ""
             return True
         session.do_selfie = True
+        session.selfie_choice_made = True
         session.waiting_for = ""
 
     if session.waiting_for == "selfie_prompt_confirm":
@@ -938,7 +941,7 @@ def _step_selfie(session: SetupSession, text: str, post: Callable) -> bool:
         session.waiting_for = ""
 
     # First entry — ask yes/no
-    if not session.do_selfie and session.waiting_for == "":
+    if not session.selfie_choice_made and session.waiting_for == "":
         post(
             "❓ Step 6 — selfie: do you want to set up the selfie feature?\n"
             "Reply `yes` or `no`."
