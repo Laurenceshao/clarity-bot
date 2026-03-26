@@ -32,13 +32,10 @@ from typing import Optional, Callable
 
 # ── config ────────────────────────────────────────────────────────────────────
 
+_DEFAULT_SCRIPTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
 SCRIPTS_DIR = os.path.expanduser(
-    os.environ.get(
-        "LIVEX_SCRIPTS_PATH",
-        "~/.claude/plugins/cache/livex-plugins/livex-config/1.7.1/scripts",
-    )
+    os.environ.get("LIVEX_SCRIPTS_PATH", _DEFAULT_SCRIPTS)
 )
-SCRIPTS_DIR = os.path.expanduser(SCRIPTS_DIR)
 PROFILES_FILE = os.path.expanduser("~/.config/livex-api/profiles")
 
 CLASSIFIER_MODELS = [
