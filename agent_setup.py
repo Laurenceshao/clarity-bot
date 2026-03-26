@@ -1030,6 +1030,7 @@ def _step_selfie(session: SetupSession, text: str, post: Callable) -> bool:
             _script("livex-flow-create.sh"),
             f"@{tmp}",
             "--profile", session.profile_name,
+            "--yes",
         ])
     finally:
         os.unlink(tmp)
