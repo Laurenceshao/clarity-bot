@@ -1182,6 +1182,16 @@ def _run_from_step(session: SetupSession, text: str, post: Callable):
 def handle_input(user_id: str, channel_id: str, text: str, post: Callable) -> None:
     text = (text or "").strip()
 
+    # Abort
+    if text.lower() in ("abort", "cancel", "stop", "exit", "quit"):
+        had_session = get_session(user_id) is not None
+        clear_session(user_id)
+        if had_session:
+            post("🛑 Setup aborted. Any steps already applied to the agent remain in place.\nRun `/setupagent` to start a new session or `/setupagent fix <step>` to continue.")
+        else:
+            post("No active session to abort.")
+        return
+
     # Reset
     if text.lower() in ("reset", "restart", "start", ""):
         clear_session(user_id)

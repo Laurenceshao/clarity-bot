@@ -230,6 +230,9 @@ def handle_setup_agent_help(ack, say, command):
         "/setupagent fix publish\n"
         "/setupagent fix verify```\n\n"
 
+        "*Abort session at any time:*\n"
+        "```/setupagent abort```\n"
+        "_Steps already applied to the agent remain in place._\n\n"
         "*Reset session:*\n"
         "```/setupagent reset```"
     )
