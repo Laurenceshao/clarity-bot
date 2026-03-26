@@ -805,92 +805,112 @@ def _step_kb(session: SetupSession, text: str, post: Callable) -> bool:
     return True
 
 
-def _build_selfie_agentflow(session: SetupSession) -> dict:
-    """Build a full production-ready selfie agentflow from the moscone template pattern."""
+def _build_selfie_agentflow(session: SetupSession) -> list:
+    """Build a selfie agentflow matching the standard LiveX template structure exactly."""
     venue = session.venue_name or session.agent_name or "this location"
     agent_name = session.agent_name or "your AI agent"
 
-    start_step_id = str(uuid.uuid4())
-    end_step_id = "566b64c0"  # stable ID matching template
+    # Fixed step IDs — match the standard template
+    START_STEP_ID = "45517c8a-4c26-400a-b253-1af493dd267e"
+    END_STEP_ID = "566b64c0"
 
-    camera_msg = (
-        f"Call the `camera_command_tool` for the user to open the camera for them, "
-        f"so they can take the selfie. Please translate `messages`, `processing_messages` and "
-        f"`image_generation_completion_messages` based on user's language. Call with the following parameters:\n"
-        f"  - `**`messages`**`: `[\"Hold on tight, I'll take the picture at the end of the countdown! Big Smile!\", "
-        f"\"Get ready to smile big! I'll snap the picture after the countdown.\", "
-        f"\"Hold still — I'll take the photo after the countdown. Say cheese!\"]`\n"
-        f"  - `**`auto_execute_on_frontend`**`: `True`\n"
-        f"  - `**`button_text`**`: `Open Camera`\n"
-        f"  - `**`camera_command`**`: `capture_image_and_submit`\n"
-        f"  - `**`target_url`**`: `https://chat.copilot.livex.ai/api/v1/selfie/generate`\n"
-        f"  - `**`processing_messages`**`: `[\"Awesome! We're working some magic on your image. "
-        f"Our creative engine is enhancing every detail to deliver a stunning result. "
-        f"This experience is powered by LiveX AI.\"]`\n"
-        f"  - `**`image_generation_completion_messages`**`: `[\"Your pic is ready! Scan the QR code to save and share it. "
-        f"Click Continue or this session will end in 45 seconds.\"]`"
+    CAMERA_MSG = (
+        "Call the `camera_command_tool` for the user to open the camera for them, so they can take the selfie. "
+        "Please translate `messages`, `processing_messages` and `image_generation_completion_messages` based on user's language. "
+        " Call with the following parameters:\n"
+        "  - `**`messages`**`: `[\"Hold on tight, I'll take the picture at the end of the countdown! Big Smile!\\n\", "
+        "\"Get ready to smile big! I'll snap the picture after the countdown.\", "
+        "\"Hold still\u2014I'll take the photo after the countdown. Say cheese!\"]`\n"
+        "  - `**`auto_execute_on_frontend`**`: `True`\n"
+        "  - `**`button_text`**`: `Open Camera`\n"
+        "  - `**`camera_command`**`: `capture_image_and_submit`\n"
+        "  - `**`target_url`**`: `https://chat.copilot.livex.ai/api/v1/selfie/generate`\n"
+        "  - `**`processing_messages`**`: `[\"Awesome!  We're working some magic on your image. \\n"
+        "Our creative engine is enhancing every detail to deliver a stunning result. "
+        "Did you know? This experience is powered by LiveX AI partnered with NVIDIA, "
+        "designed to bring intelligent, human-like interactions to life.\"]`\n"
+        "  - `**`image_generation_completion_messages`**`: `[\"Your pic is ready. Scan the QR code to save and share it, "
+        "and tag LiveX AI to support us in making this experience even more fun. "
+        "We can't wait to see your friends' faces when they see your image. "
+        "Click Continue conversation or this session will end in 45 seconds.\"]`"
     )
 
     image_config = session.image_config_str or json.dumps({
-        "message": f"Just met {agent_name} at {venue}! Powered by @livex_ai #LiveXAI",
-        "tags": ["LiveXAI", re.sub(r'\s+', '', venue)],
+        "message": f"Just met {agent_name} at {venue}! @livex_ai #LiveXAI",
+        "tags": ["Selfie", re.sub(r'\s+', '', venue), "LiveX"],
     })
 
+    workflow_config = {
+        "additional_instructions": "",
+        "disable_button": True,
+        "disable_question_suggestion": True,
+        "enable_support_button": False,
+        "flow_rules": "",
+        "global_tools": [
+            "document_retrieval_tool",
+            "end_of_workflow",
+            "external_api_call_tool",
+            "camera_command_tool",
+        ],
+        "image_config": image_config,
+        "image_prompt": session.selfie_prompt,
+        "image_counter_key": session.counter_key,
+    }
+
+    if session.watermark_logo:
+        workflow_config["image_watermark_logo"] = session.watermark_logo
+
     flow = {
-        "workflow_name": f"Feature: Selfie, {venue}",
+        "author": "claritybot",
+        "description": [
+            "User is interacting with photo experience. The workflow will guide user to take a photo and generate a fun image for them.",
+            "Never select this workflow unless the user asks for a selfie or photo."
+        ],
+        "start_step_id": START_STEP_ID,
         "type": "ai-based",
-        "start_step_id": start_step_id,
+        "workflow_name": f"Feature: Selfie - {agent_name}",
+        "workflow_config": workflow_config,
         "steps": [
             {
-                "step_id": start_step_id,
-                "description": "Start",
+                "step_id": START_STEP_ID,
+                "description": "Start ",
                 "operation_id": "internalProcess",
                 "parameters": {
                     "field": {},
-                    "messages": [{"text": camera_msg}],
+                    "messages": [{"text": CAMERA_MSG}],
                     "tools": [],
                 },
                 "next": [
                     {
                         "condition": "Immediate",
-                        "target_step_id": end_step_id,
+                        "target_step_id": END_STEP_ID,
                         "use_condition_as_option": False,
                     }
                 ],
             },
             {
-                "step_id": end_step_id,
+                "step_id": END_STEP_ID,
                 "description": "End",
                 "operation_id": "endOfWorkflow",
                 "parameters": {
                     "end_of_workflow": {"success": True},
                     "field": {},
-                    "messages": [{"text": f"Enjoy your visit to {venue}! How else can I help?"}],
+                    "form_name": "",
+                    "messages": [{"text": f"Enjoy your experience at {venue}! How can I help you?"}],
+                    "text": "",
                     "tools": [],
                 },
                 "next": [],
             },
         ],
-        "workflow_config": {
-            "disable_button": True,
-            "disable_question_suggestion": True,
-            "enable_support_button": False,
-            "global_tools": [
-                "document_retrieval_tool",
-                "end_of_workflow",
-                "external_api_call_tool",
-                "camera_command_tool",
-            ],
-            "image_prompt": session.selfie_prompt,
-            "image_config": image_config,
-            "image_counter_key": session.counter_key,
+        "test_data": {
+            "false_positive": [],
+            "positive": [],
         },
     }
 
-    if session.watermark_logo:
-        flow["workflow_config"]["image_watermark_logo"] = session.watermark_logo
-
-    return flow
+    # Script expects an array
+    return [flow]
 
 
 def _step_selfie(session: SetupSession, text: str, post: Callable) -> bool:
