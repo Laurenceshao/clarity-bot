@@ -39,7 +39,6 @@ SCRIPTS_DIR = os.path.expanduser(
 PROFILES_FILE = os.path.expanduser("~/.config/livex-api/profiles")
 
 CLASSIFIER_MODELS = [
-    "cerebras-gpt-oss-120b",
     "groq-openai/gpt-oss-120b",
     "gpt-4.1-2025-04-14",
 ]
