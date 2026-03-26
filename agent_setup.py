@@ -672,11 +672,13 @@ def _step_language_models(session: SetupSession, text: str, post: Callable) -> b
     """Full TTS/STT language_models patch via --full-write."""
 
     if session.waiting_for == "lm_source_choice":
-        low = text.strip().lower()
-        if low in ("template", "default", "lyra", "n", "no"):
-            session.lm_custom_source = ""
-        else:
-            session.lm_custom_source = text.strip()
+        val = text.strip()
+        # Only treat as a source agent_id if it matches UUID / pub-UUID format
+        is_agent_id = bool(re.match(
+            r'^(pub-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+            val, re.IGNORECASE
+        ))
+        session.lm_custom_source = val if is_agent_id else ""
         session.lm_choice_made = True
         session.waiting_for = ""
 
@@ -833,7 +835,7 @@ def _step_kb(session: SetupSession, text: str, post: Callable) -> bool:
         merged = list(dict.fromkeys(existing + uploaded_doc_ids))  # dedupe, preserve order
         patch = json.dumps({"tools": {"document_qa": {"document_list": merged}}})
         _run([
-            _script("livex-config-update.sh"), session.agent_id,
+            _script("livex-config-update.sh"), session.bare_id,
             "--profile", session.profile_name,
             patch, "--yes",
         ])
