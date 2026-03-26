@@ -108,16 +108,33 @@ def analyze_contradiction(relevant_history: list[str], new_message: str) -> str 
 def handle_message(event, say):
     if event.get("bot_id"):
         return
-    if event.get("thread_ts"):
-        return
 
     text = event.get("text", "").strip()
-    if not text or len(text) < 10:
+    if not text:
         return
 
     channel = event.get("channel")
+    user = event.get("user")
+
+    # Thread replies: only handle if user has an active setup session
+    if event.get("thread_ts"):
+        session = agent_setup.get_session(user) if user else None
+        if session:
+            def reply(msg):
+                say(text=msg, thread_ts=event["thread_ts"])
+            agent_setup.handle_input(user, channel, text, reply)
+        return
+
     channel_type = event.get("channel_type")
     is_dm = channel_type == "im"
+
+    # Route to active setup session before any other checks
+    if user and agent_setup.get_session(user):
+        agent_setup.handle_input(user, channel, text, say)
+        return
+
+    if len(text) < 10:
+        return
 
     # Skip alignment checks if disabled for this channel
     if not alignment_enabled[channel]:
