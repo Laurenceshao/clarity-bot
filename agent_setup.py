@@ -762,9 +762,12 @@ def _step_kb(session: SetupSession, text: str, post: Callable) -> bool:
             session.kb_skip = True
             session.waiting_for = ""
         else:
-            # Parse URLs from text (one per line or comma-separated)
-            raw = re.split(r'[\n,]+', text.strip())
-            session.kb_urls = [u.strip() for u in raw if u.strip().startswith("http")]
+            # Slack wraps URLs as <https://...> or <https://...|display text>
+            # Extract actual URLs from both wrapped and plain forms
+            slack_urls = re.findall(r'<(https?://[^|>]+)(?:\|[^>]*)?>',  text)
+            plain_urls = re.findall(r'(?<![<|])(https?://\S+)', text)
+            all_urls = slack_urls + [u for u in plain_urls if u not in slack_urls]
+            session.kb_urls = [u.strip('.,') for u in all_urls if u.strip('.,')]
             if not session.kb_urls:
                 post("❓ Step 5 — KB: no valid URLs found. Paste URLs (one per line) or reply `skip`.")
                 return False
